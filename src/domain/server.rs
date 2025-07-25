@@ -1,52 +1,41 @@
-use std::collections::HashMap;
+use std::collections::{HashSet};
+use serde::Deserialize;
 
-#[derive(Clone)]
-pub struct Server {
+// TODO: нужен ли тут port или достаточно host?
+#[derive(Clone, Deserialize)]
+pub struct BackendServer {
     pub name: String,
     pub host: String,
-    pub port: i32,
-}
-
-impl Server {
-    pub fn new(name: String, host: String, port: i32) -> Self {
-        Server {
-            name: name,
-            host: host,
-            port: port,
-        }
-    }
 }
 
 pub struct ServerPool {
-    pub servers: Vec<Server>,
-    pub unique_servers: HashMap<String, ()>,
+    pub servers: Vec<BackendServer>,
+    pub unique_servers: HashSet<String>,
 }
 
 impl ServerPool {
     pub fn new() -> Self {
         ServerPool {
             servers: vec![],
-            unique_servers: HashMap::new(),
+            unique_servers: HashSet::new(),
         }
     }
 
     // Rewrite server by its key. Because it is simple enough.
-    pub fn add_servers(&mut self, servers: Vec<Server>) {
+    pub fn add_servers(&mut self, servers: Vec<BackendServer>) {
         for server in servers {
-            if self
-                .unique_servers
-                .contains_key(&format!("{}:{}", server.host, server.port))
-            {
+            if !self.unique_servers.insert(format!("{}-{}", server.name.clone(), server.host.clone())) {
                 panic!(
-                    "Server with host {}:{} meets multiple times in config",
-                    server.host, server.port
-                )
+                    "Server with host {} meets multiple times in config",
+                    server.host
+                );
             }
-            self.servers.push(server)
+            self.servers.push(server);
         }
+        println!("{:?}", self.unique_servers)
     }
 
-    pub fn get_all_servers(&self) -> &[Server] {
+    pub fn get_all_servers(&self) -> &[BackendServer] {
         &self.servers
     }
 }

@@ -1,5 +1,6 @@
-use crate::domain::server::Server;
+use crate::domain::server::{BackendServer, ServerPool};
 
-pub trait Strategy {
-    fn get_next_server(&self) -> Option<&Server>;
+pub trait Strategy: Send + Sync {
+    fn get_next_server(&self, pool: &ServerPool) -> Option<BackendServer>;
 }
+

@@ -1,47 +1,68 @@
-use core::{option::Option::None, result::Result::Err};
-use std::{
-    io::{Read, Write},
-    net::{TcpListener, TcpStream},
-};
+use http_body_util::Full;
+use hyper::{Response, StatusCode, Uri, body::Bytes};
+use hyper_util::client::legacy::{Client, connect::Connect};
+use std::{str::FromStr, sync::Arc};
 
-use crate::strategies::strategy::Strategy;
+use crate::{domain::server::{BackendServer, ServerPool}, strategies::strategy::Strategy};
 
-pub struct LoadBalancer {
+// TODO LoadBalancer должен иметь pool серверов по которому осуществляется балансировка
+// TODO подумать, как заменить тип Full<Bytes> на дженерик и стоит ли это делать
+pub struct LoadBalancer<C> {
     strategy: Box<dyn Strategy>,
+    http_client: Arc<Client<C, Full<Bytes>>>,
+    pool: ServerPool,
 }
 
-// Probably serve and handle must not be a part of LoadBalancer
-impl LoadBalancer {
-    pub fn new(strategy: impl Strategy + 'static) -> Self {
+impl<C> LoadBalancer<C>
+where
+    C: Clone + Send + Sync + Connect + 'static,
+{
+    pub fn new(strategy: impl Strategy + 'static, client: Arc<Client<C, Full<Bytes>>>, pool: ServerPool) -> Self {
         LoadBalancer {
             strategy: Box::new(strategy),
+            http_client: client,
+            pool: pool
         }
     }
 
-    pub fn serve(&self) -> std::io::Result<()> {
-        let listener = TcpListener::bind("0.0.0.0:8000")?;
-        for stream in listener.incoming() {
-            match stream {
-                Ok(stream) => self.handle(stream),
-                Err(e) => eprintln!("Connection failed {}", e),
+    pub fn choose_backend(&self) -> Option<BackendServer> {
+        self.strategy.get_next_server(&self.pool)
+    }
+
+    // TODO: проработать коды ошибок
+    pub async fn redirect_query(&self) -> Result<Response<Full<Bytes>>, hyper::http::Error> {
+        let backend = match self.choose_backend() {
+            Some(backend) => backend,
+            None => {
+                return Ok(Response::builder()
+                    .status(StatusCode::SERVICE_UNAVAILABLE)
+                    .body(Full::new(Bytes::from("No backend available")))
+                    .unwrap());
             }
-        }
-        Ok(())
-    }
+        };
 
-    pub fn handle(&self, mut stream: TcpStream) {
-        match self.strategy.get_next_server() {
-            Some(server) => {
-                println!("{}", server.name);
-                let mut buffer = [0; 512];
-                match stream.read(&mut buffer) {
-                    Ok(_) => {
-                        let _ = stream.write(format!("Redirecting to {}", server.name).as_bytes());
-                    }
-                    Err(_) => println!("!"),
-                }
-            },
-            None => println!("none"),
+        let uri = match Uri::from_str(&backend.host) {
+            Ok(uri) => uri,
+            Err(err) => {
+                return Ok(Response::builder()
+                    .status(StatusCode::SERVICE_UNAVAILABLE)
+                    .body(Full::new(Bytes::from(err.to_string())))
+                    .unwrap());
+            }
+        };
+
+        // TODO не обрабатываем resp
+        match self.http_client.get(uri).await {
+            // No need Ok() here, body returns Result<> already
+            Ok(_resp) => Response::builder()
+                .status(StatusCode::OK)
+                .body(Full::new(Bytes::from("TODO"))),
+            Err(err) => {
+                return Ok(Response::builder()
+                    .status(StatusCode::SERVICE_UNAVAILABLE)
+                    .body(Full::new(Bytes::from(err.to_string())))
+                    .unwrap());
+            }
         }
     }
 }

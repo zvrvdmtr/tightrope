@@ -1,0 +1,14 @@
+[proxy]
+balancing_algorithm = "RoundRobin"
+
+[[servers]]
+name = "first server"
+host = "https://echo.free.beeceptor.com"
+
+[[servers]]
+name = "second server"
+host = "https://echo.free.beeceptor.com"
+
+[[servers]]
+name = "third server"
+host = "https://echo.free.beeceptor.com"
